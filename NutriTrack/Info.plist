@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>GEMINI_API_KEY</key>
+	<string>$(GEMINI_API_KEY)</string>
+	<key>SYNC_BASE_URL</key>
+	<string>$(SYNC_BASE_URL)</string>
+	<key>SYNC_TOKEN</key>
+	<string>$(SYNC_TOKEN)</string>
+	<key>SYNC_TEST_TOKEN</key>
+	<string>$(SYNC_TEST_TOKEN)</string>
+</dict>
+</plist>

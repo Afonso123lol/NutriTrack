@@ -1,0 +1,25 @@
+services:
+  nutritrack_ingest:
+    build: .
+    container_name: nutritrack_ingest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NUTRITRACK_DATA_DIR: /data
+    ports:
+      - "127.0.0.1:8787:8787"
+    volumes:
+      - /home/ubuntu/nutritrack-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
