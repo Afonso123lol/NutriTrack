@@ -42,9 +42,9 @@ final class ModelJobStoreTests: XCTestCase {
     func testIsPendingMatchesKind() throws {
         let store = ModelJobStore(directory: tempDirectory())
         let day = Calendar.current.startOfDay(for: Date())
-        try store.add(ModelJob(kind: .scoreEvaluation(day: day)), body: Data())
-        XCTAssertTrue(store.isPending(.scoreEvaluation(day: day)))
-        XCTAssertFalse(store.isPending(.dailyCoach(day: day)))
+        try store.add(ModelJob(kind: .dailyCoach(day: day)), body: Data())
+        XCTAssertTrue(store.isPending(.dailyCoach(day: day)))
+        XCTAssertFalse(store.isPending(.mealAnalysis(pendingItemID: UUID())))
     }
 
     func testAddingJobClearsPreviousFailureOfSameKind() throws {
@@ -54,5 +54,20 @@ final class ModelJobStoreTests: XCTestCase {
         XCTAssertEqual(store.failures[kind], "boom")
         try store.add(ModelJob(kind: kind), body: Data())
         XCTAssertNil(store.failures[kind])
+    }
+
+    func testLoadingDeletesObsoleteScoreJobs() throws {
+        let dir = tempDirectory()
+        let store = ModelJobStore(directory: dir)
+        let day = Calendar.current.startOfDay(for: Date())
+        let old = ModelJob(kind: .scoreEvaluation(day: day))
+        let diet = ModelJob(kind: .dietEvaluation(day: day))
+        let coach = ModelJob(kind: .dailyCoach(day: day))
+        for job in [old, diet, coach] { try store.add(job, body: Data("x".utf8)) }
+
+        let reloaded = ModelJobStore(directory: dir)
+        XCTAssertEqual(reloaded.jobs.map(\.id), [coach.id])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: reloaded.bodyURL(for: old.id).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: reloaded.bodyURL(for: diet.id).path))
     }
 }

@@ -10,7 +10,12 @@ Built with SwiftUI + CoreData. All data lives on the device; an optional sync ca
 
 ### 📸 AI Meal Analysis
 - Snap a photo with the camera or pick one from the photo library
-- Optional text note (e.g. "3 medium eggs, cooked in olive oil") and per-meal plate diameter (18–34 cm) used as a physical scale reference
+- Optional text note (e.g. "3 medium eggs, cooked in olive oil"). A photo can be marked as "On my usual plate" so the plate diameter from the profile is used as a scale reference; without a plate, the model counts whole units and reads the net weight on any visible package
+
+### 🔎 Barcode Scanning
+- Scan EAN-13, EAN-8 and UPC-E codes with VisionKit, or type the code
+- Label values come from [Open Food Facts](https://world.openfoodfacts.org) (ODbL) and are cached on the device
+- Pick a portion (pack, serving, last amount, 100 g or any grams); the entry is saved at once, with Undo
 - Powered by **Gemini 3.5 Flash Lite** (with Gemma 4 31B as fallback) via the Google AI Studio API, with a structured 3-step prompt: identify components → estimate weights → apply USDA FoodData Central reference values
 - **Background analysis**: the capture sheet closes immediately; a shimmer card on the Home screen shows progress, then the result with Save / Discard
 - Full **preview sheet** before saving: every nutrient, the AI's comment, and any validation adjustments
@@ -147,20 +152,24 @@ Measured against a USDA-based reference for a real meal (3 eggs in olive oil + b
 - **Core macros** (kcal/protein/carbs/fat): ~5% mean deviation (~95% accuracy)
 - **Micronutrients**: ~25% mean deviation (~75% accuracy) — excellent for single-ingredient-dominant nutrients, weaker for nutrients accumulated from many small sources
 
-The validation engine guarantees internal consistency; real-world accuracy depends on the model and improves with descriptive notes and the plate-diameter reference. Values are estimates — use trends, not single-day absolutes, for health decisions.
+The validation engine guarantees internal consistency; real-world accuracy depends on the model and improves with descriptive notes and the plate-diameter reference. Barcode entries use the printed label values from Open Food Facts. Values are estimates — use trends, not single-day absolutes, for health decisions.
 
 ## Roadmap
 
 - Insights view: energy vs. nutrition/sleep correlations (needs ~14 days of check-in data)
 - Meal editing after save
 - Photo storage optimization (thumbnail compression for entries older than 30 days)
-- Barcode scanning, Apple Health integration, widgets
+- Apple Health integration, widgets
 
 ---
 
 ## Optional sync server
 
 `server/` is a small FastAPI service (Docker) that receives your own records with a bearer token and lets the app restore them after a reinstall. Create `server/.env` with `NUTRITRACK_TOKEN=` followed by a long random string (the same value as `SYNC_TOKEN` in the app), then run `docker compose up -d --build`. It binds to `127.0.0.1` only: put it behind a private network or a reverse proxy with HTTPS.
+
+## Data sources
+
+Product data from [Open Food Facts](https://world.openfoodfacts.org), available under the [Open Database License](https://opendatacommons.org/licenses/odbl/1-0/).
 
 ## License
 

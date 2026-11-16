@@ -32,9 +32,13 @@ struct MicronutrientsView: View {
         case .week:
             let days = EvaluationService.completeDayIntakes(in: ctx)
             let average = WeekIntake.average(days)
+            let weekDays = EvaluationService.foodWeekDays(in: ctx)
+            let usual = weekDays.filter { !$0.hasLongSession }
+            let sodium = usual.isEmpty ? nil
+                : (mg: usual.map(\.sodiumMg).reduce(0, +) / Double(usual.count), leftOut: weekDays.count - usual.count)
             return MicronutrientBoard.make(total: average.total, supplements: average.supplements,
                                            targets: profile.macroTargets, period: .week(completeDays: days.count),
-                                           hasLongSession: false)
+                                           hasLongSession: false, weekSodiumWithoutLongDays: sodium)
         }
     }
 

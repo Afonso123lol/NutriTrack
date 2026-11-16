@@ -48,7 +48,8 @@ struct MicronutrientBoard {
     }
 
     static func make(total: NutritionAnalysis, supplements: NutritionAnalysis, targets: MacroTargets,
-                     period: BoardPeriod, hasLongSession: Bool) -> MicronutrientBoard {
+                     period: BoardPeriod, hasLongSession: Bool,
+                     weekSodiumWithoutLongDays: (mg: Double, leftOut: Int)? = nil) -> MicronutrientBoard {
         let limits = targets.limits
         let showsStatus: Bool
         switch period {
@@ -92,9 +93,16 @@ struct MicronutrientBoard {
             limit("Saturated fat", total.saturatedFatG, targets.calories * 0.10 / 9, "g", "Limit: WHO, 10 % of energy."),
             limit("Trans fat", total.transFatG ?? 0, targets.calories * 0.01 / 9, "g", "Limit: WHO, 1 % of energy."),
         ]
-        let sodium = hasLongSession && period == .today
-            ? plain("Sodium", total.sodiumMg, "mg", note: "Long session today: sodium needs are higher.")
-            : limit("Sodium", total.sodiumMg, limits.sodiumMaxMg, "mg", "Limit: EFSA and WHO, 2 g a day.")
+        let sodium: NutrientReading
+        if hasLongSession && period == .today {
+            sodium = plain("Sodium", total.sodiumMg, "mg", note: "Long session today: sodium needs are higher.")
+        } else if period != .today, let week = weekSodiumWithoutLongDays, week.leftOut > 0 {
+            sodium = NutrientReading(name: "Sodium", value: week.mg, unit: "mg", floor: 0, ceiling: limits.sodiumMaxMg,
+                                     rule: .limit, showsStatus: showsStatus, basis: "Limit: EFSA and WHO, 2 g a day.",
+                                     note: "Leaves out \(week.leftOut) \(week.leftOut == 1 ? "day" : "days") with a session over 2 h.")
+        } else {
+            sodium = limit("Sodium", total.sodiumMg, limits.sodiumMaxMg, "mg", "Limit: EFSA and WHO, 2 g a day.")
+        }
         let minerals = [
             sodium,
             referenced("Potassium", total.potassiumMg, supplements.potassiumMg, limits.potassium, "mg"),

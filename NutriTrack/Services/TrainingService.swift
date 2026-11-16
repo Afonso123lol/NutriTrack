@@ -10,6 +10,10 @@ struct StrengthSetInput {
 enum TrainingService {
     static let historyWeeks = 8
     static let day: TimeInterval = 86400
+
+    static func shifted(_ date: Date, days: Int) -> Date {
+        Calendar.current.date(byAdding: .day, value: days, to: date) ?? date.addingTimeInterval(Double(days) * day)
+    }
     static let longSessionMinutes = 120.0
 
     static func profile(in ctx: NSManagedObjectContext) -> TrainingProfile? {
@@ -160,6 +164,35 @@ enum TrainingService {
 
     static func reasons(on date: Date, in ctx: NSManagedObjectContext) -> [DayReason] {
         state(on: date, in: ctx).map(DayReadiness.reasons) ?? []
+    }
+
+    static func checkIns(from start: Date, to end: Date, in ctx: NSManagedObjectContext) -> [DailyCheckIn] {
+        let request = DailyCheckIn.fetchRequest()
+        request.predicate = NSPredicate(format: "date >= %@ AND date < %@", start as NSDate, end as NSDate)
+        request.sortDescriptors = [NSSortDescriptor(keyPath: \DailyCheckIn.date, ascending: true)]
+        return (try? ctx.fetch(request)) ?? []
+    }
+
+    static func stateBoard(on date: Date, profile: UserProfile, in ctx: NSManagedObjectContext) -> DayStateBoard? {
+        guard let today = DailyCheckIn.on(date, in: ctx) else { return nil }
+        let start = Calendar.current.startOfDay(for: date)
+        let history = checkIns(from: shifted(start, days: -DayStateBoard.windowDays), to: start, in: ctx)
+        func entry(_ checkIn: DailyCheckIn) -> DayStateBoard.Entry {
+            DayStateBoard.Entry(energy: Int(checkIn.energyLevel), soreness: Int(checkIn.soreness),
+                                stress: Int(checkIn.stress), isSick: checkIn.isSick, hasPain: checkIn.hasPain)
+        }
+        return DayStateBoard.make(today: entry(today), history: history.map(entry),
+                                  sleepHours: today.sleepHours, sleepNeed: profile.sleepNeed)
+    }
+
+    static func sleepSummary(now: Date, profile: UserProfile, in ctx: NSManagedObjectContext) -> SleepSummary {
+        let end = shifted(Calendar.current.startOfDay(for: now), days: 1)
+        func night(_ checkIn: DailyCheckIn) -> SleepSummary.Night {
+            SleepSummary.Night(hours: checkIn.sleepHours, quality: Int(checkIn.sleepQuality),
+                               bedtime: checkIn.bedtime, dayEnergy: Int(checkIn.dayEnergy))
+        }
+        return SleepSummary.make(lastSeven: checkIns(from: shifted(end, days: -7), to: end, in: ctx).map(night),
+                                 recent: checkIns(from: shifted(end, days: -90), to: end, in: ctx).map(night))
     }
 
     static func lightWeekChoice(weekStart: Date, in ctx: NSManagedObjectContext) -> SuggestionChoice? {

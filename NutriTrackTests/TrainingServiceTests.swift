@@ -360,4 +360,44 @@ final class TrainingServiceTests: XCTestCase {
         XCTAssertEqual(green.applied.targetMinutes, planned.targetMinutes)
         XCTAssertNil(green.suggestion)
     }
+
+    private func addCheckIn(daysAgo: Int, energy: Int, soreness: Int = 2, stress: Int = 2, hours: Double = 7.5,
+                            sick: Bool = false, dayEnergy: Int = 0, in ctx: NSManagedObjectContext) {
+        let today = Calendar.current.startOfDay(for: Date())
+        let checkIn = DailyCheckIn(context: ctx)
+        checkIn.id = UUID()
+        checkIn.date = today.addingTimeInterval(Double(-daysAgo) * 86400)
+        checkIn.energyLevel = Int16(energy)
+        checkIn.soreness = Int16(soreness)
+        checkIn.stress = Int16(stress)
+        checkIn.sleepHours = hours
+        checkIn.sleepQuality = 3
+        checkIn.isSick = sick
+        checkIn.dayEnergy = Int16(dayEnergy)
+        checkIn.bedtime = checkIn.date!.addingTimeInterval(-30 * 60)
+    }
+
+    func testTheStateBoardUsesTheTwentyEightDaysBeforeToday() {
+        let (ctx, user, _) = makeStore()
+        for daysAgo in 1...20 { addCheckIn(daysAgo: daysAgo, energy: 4, in: ctx) }
+        addCheckIn(daysAgo: 30, energy: 1, in: ctx)
+        addCheckIn(daysAgo: 0, energy: 3, hours: 5.5, in: ctx)
+        try? ctx.save()
+        let board = TrainingService.stateBoard(on: Date(), profile: user, in: ctx)
+        XCTAssertEqual(board?.baselineDays, 20)
+        XCTAssertEqual(board?.rows.first?.usual, 4)
+        XCTAssertEqual(board?.rows.first?.band, .below)
+        XCTAssertEqual(board?.sleep?.hours, 5.5)
+        XCTAssertNil(TrainingService.stateBoard(on: Date().addingTimeInterval(86400), profile: user, in: ctx))
+    }
+
+    func testTheSleepSummaryReadsTheLastSevenNights() {
+        let (ctx, user, _) = makeStore()
+        for daysAgo in 0...9 { addCheckIn(daysAgo: daysAgo, energy: 4, hours: daysAgo < 7 ? 8 : 5, in: ctx) }
+        try? ctx.save()
+        let summary = TrainingService.sleepSummary(now: Date(), profile: user, in: ctx)
+        XCTAssertEqual(summary.averageText, "7-night average 8.0 h")
+        XCTAssertEqual(summary.enoughNightsText, "7 of 7 nights with 7 h or more")
+        XCTAssertNotNil(summary.regularity)
+    }
 }

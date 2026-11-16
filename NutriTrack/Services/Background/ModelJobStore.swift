@@ -72,6 +72,11 @@ final class ModelJobStore: ObservableObject {
                     try? FileManager.default.removeItem(at: url)
                     return nil
                 }
+                if job.kind.isObsolete {
+                    try? FileManager.default.removeItem(at: url)
+                    try? FileManager.default.removeItem(at: bodyURL(for: job.id))
+                    return nil
+                }
                 return job
             }
     }

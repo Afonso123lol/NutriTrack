@@ -5,64 +5,34 @@ import CoreData
 @MainActor
 final class EvaluationTextsTests: XCTestCase {
 
-    private func score(_ value: Int) -> HealthScore { HealthScore(value: value, components: []) }
     private var today: Date { Calendar.current.startOfDay(for: Date()) }
-    private var yesterday: Date { Calendar.current.date(byAdding: .day, value: -1, to: today)! }
 
-    private func allEvaluations(_ ctx: NSManagedObjectContext) throws -> [DailyEvaluation] {
-        try ctx.fetch(DailyEvaluation.fetchRequest())
+    func testTodayEvaluationReturnsNilWhenEmpty() {
+        let ctx = Persistence(inMemory: true).container.viewContext
+        XCTAssertNil(EvaluationService.todayEvaluation(in: ctx))
     }
 
-    func testCoachTextOnEmptyDayCreatesEvaluationWithoutScores() throws {
+    func testCoachTextOnEmptyDayCreatesEvaluation() throws {
         let ctx = Persistence(inMemory: true).container.viewContext
         EvaluationService.saveCoachText("Eat more fibre.", day: today, in: ctx)
         let evaluation = try XCTUnwrap(EvaluationService.evaluation(for: today, in: ctx))
         XCTAssertEqual(evaluation.coachText, "Eat more fibre.")
         XCTAssertNotNil(evaluation.coachGeneratedAt)
-        XCTAssertNil(evaluation.generatedAt)
+        XCTAssertNil(evaluation.closedAt)
     }
 
-    func testCoachTextReusesScoredEvaluation() throws {
+    func testCoachTextReusesTheClosedDay() throws {
         let ctx = Persistence(inMemory: true).container.viewContext
-        EvaluationService.upsert(sleep: score(70), readiness: score(90), in: ctx)
+        let entry = FoodEntry(context: ctx)
+        entry.id = UUID()
+        entry.timestamp = Date()
+        entry.calories = 500
+        try ctx.save()
+        EvaluationService.closeDay(Date(), isLogComplete: true, in: ctx)
         EvaluationService.saveCoachText("Good day.", day: today, in: ctx)
-        let all = try allEvaluations(ctx)
+        let all = try ctx.fetch(DailyEvaluation.fetchRequest())
         XCTAssertEqual(all.count, 1)
-        XCTAssertEqual(all.first?.sleepScore, 70)
+        XCTAssertNotNil(all.first?.closedAt)
         XCTAssertEqual(all.first?.coachText, "Good day.")
-    }
-
-    func testScoreTextsAreWrittenWithoutTouchingScores() throws {
-        let ctx = Persistence(inMemory: true).container.viewContext
-        EvaluationService.upsert(sleep: score(70), readiness: score(90), in: ctx)
-        let texts = ScoreEvaluationTexts(sleepComment: "s", readinessComment: "r")
-        EvaluationService.applyScoreTexts(texts, day: today, in: ctx)
-        let evaluation = try XCTUnwrap(EvaluationService.evaluation(for: today, in: ctx))
-        XCTAssertEqual(evaluation.readinessText, "r")
-        XCTAssertEqual(evaluation.sleepScore, 70)
-    }
-
-    func testScoreTextsTargetTheJobDayNotToday() throws {
-        let ctx = Persistence(inMemory: true).container.viewContext
-        let texts = ScoreEvaluationTexts(sleepComment: "s", readinessComment: "r")
-        EvaluationService.applyScoreTexts(texts, day: yesterday, in: ctx)
-        XCTAssertEqual(EvaluationService.evaluation(for: yesterday, in: ctx)?.sleepText, "s")
-        XCTAssertNil(EvaluationService.evaluation(for: today, in: ctx))
-    }
-
-    func testHistoryExcludesCoachOnlyEvaluations() throws {
-        let ctx = Persistence(inMemory: true).container.viewContext
-        EvaluationService.saveCoachText("x", day: yesterday, in: ctx)
-        EvaluationService.upsert(sleep: score(70), readiness: score(90), in: ctx)
-        let request = DailyEvaluation.fetchRequest()
-        request.predicate = EvaluationService.historyPredicate(since: Calendar.current.date(byAdding: .day, value: -14, to: today)!)
-        XCTAssertEqual(try ctx.fetch(request).count, 1)
-    }
-
-    func testDietTextIsSavedOnTheDayOfTheJob() throws {
-        let ctx = Persistence(inMemory: true).container.viewContext
-        EvaluationService.saveDietText("More fibre.", day: yesterday, in: ctx)
-        XCTAssertEqual(EvaluationService.evaluation(for: yesterday, in: ctx)?.dietText, "More fibre.")
-        XCTAssertNil(EvaluationService.evaluation(for: today, in: ctx))
     }
 }

@@ -127,6 +127,22 @@ final class ModelMigrationTests: XCTestCase {
         try assertStoreMigrates(from: "NutriTrack 4")
     }
 
+    func testVersionSixStoreOpensWithCurrentModelAndKeepsData() throws {
+        try assertStoreMigrates(from: "NutriTrack 6")
+    }
+
+    func testCurrentModelHasVersionSevenFields() throws {
+        let food = try attributes(of: "FoodEntry")
+        for name in ["source", "productEAN", "portionLabel"] {
+            XCTAssertEqual(food[name]?.attributeType, .stringAttributeType, name)
+        }
+        XCTAssertEqual(food["grams"]?.attributeType, .doubleAttributeType)
+        let product = try attributes(of: "Product")
+        XCTAssertEqual(product["ean"]?.attributeType, .stringAttributeType)
+        XCTAssertEqual(product["caloriesPer100"]?.attributeType, .doubleAttributeType)
+        XCTAssertEqual(product["useCount"]?.attributeType, .integer32AttributeType)
+    }
+
     func testCurrentModelHasOptionalBirthDate() throws {
         let birthDate = try XCTUnwrap(attributes(of: "UserProfile")["birthDate"])
         XCTAssertEqual(birthDate.attributeType, .dateAttributeType)

@@ -6,6 +6,13 @@ nonisolated enum ModelJobKind: Codable, Hashable, Sendable {
     case dailyCoach(day: Date)
     case scoreEvaluation(day: Date)
     case dietEvaluation(day: Date)
+
+    var isObsolete: Bool {
+        switch self {
+        case .scoreEvaluation, .dietEvaluation: return true
+        case .mealAnalysis, .dailyCoach: return false
+        }
+    }
 }
 
 nonisolated struct ModelJob: Codable, Hashable, Sendable, Identifiable {
@@ -55,10 +62,7 @@ nonisolated enum ModelNotification {
         case (.mealAnalysis, false): return ("Meal analysis failed", "Open the app to retry.")
         case (.dailyCoach, true): return ("Your day analysis is ready", "Tap to read your coach's recommendations.")
         case (.dailyCoach, false): return ("Day analysis failed", "Open the app to try again.")
-        case (.scoreEvaluation, true): return ("Today's scores are ready", "Tap to see what drove them.")
-        case (.scoreEvaluation, false): return ("Score analysis failed", "Open the app to try again.")
-        case (.dietEvaluation, true): return ("Your diet review is ready", "Tap to see what drove the score.")
-        case (.dietEvaluation, false): return ("Diet review failed", "Open the app to try again.")
+        case (.scoreEvaluation, _), (.dietEvaluation, _): return ("", "")
         }
     }
 }

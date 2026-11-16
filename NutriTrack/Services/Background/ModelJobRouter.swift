@@ -5,8 +5,6 @@ final class ModelJobRouter {
     private let resend: (ModelJob) -> Void
     private let applyMeal: (UUID, PendingMealStatus) -> Void
     private let applyCoach: (Date, String) -> Void
-    private let applyScores: (Date, ScoreEvaluationTexts) -> Void
-    private let applyDiet: (Date, String) -> Void
     private let notify: (ModelJobKind, Bool) -> Void
     private let logEvent: (String, [String: String]) -> Void
 
@@ -14,22 +12,22 @@ final class ModelJobRouter {
          resend: @escaping (ModelJob) -> Void,
          applyMeal: @escaping (UUID, PendingMealStatus) -> Void,
          applyCoach: @escaping (Date, String) -> Void,
-         applyScores: @escaping (Date, ScoreEvaluationTexts) -> Void,
-         applyDiet: @escaping (Date, String) -> Void,
          notify: @escaping (ModelJobKind, Bool) -> Void,
          logEvent: @escaping (String, [String: String]) -> Void) {
         self.store = store
         self.resend = resend
         self.applyMeal = applyMeal
         self.applyCoach = applyCoach
-        self.applyScores = applyScores
-        self.applyDiet = applyDiet
         self.notify = notify
         self.logEvent = logEvent
     }
 
     func handle(jobID: UUID, data: Data, statusCode: Int?, error: Error?) {
         guard let job = store.job(id: jobID) else { return }
+        if job.kind.isObsolete {
+            store.remove(id: job.id)
+            return
+        }
         let errorCode = (error as? URLError)?.code
         if errorCode == .cancelled { return }
 
@@ -48,10 +46,9 @@ final class ModelJobRouter {
                 applyMeal(itemID, .done(try GeminiService.parseNutritionResponse(data)))
             case .dailyCoach(let day):
                 applyCoach(day, try GeminiService.parseCoachResponse(data))
-            case .scoreEvaluation(let day):
-                applyScores(day, try GeminiService.parseScoreEvaluationResponse(data))
-            case .dietEvaluation(let day):
-                applyDiet(day, try GeminiService.parseDietEvaluationResponse(data))
+            case .scoreEvaluation, .dietEvaluation:
+                store.remove(id: job.id)
+                return
             }
             store.remove(id: job.id)
             logEvent("model.completed", job.eventDetails.merging(

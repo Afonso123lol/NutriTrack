@@ -129,6 +129,11 @@ struct NutritionView: View {
                         .themedCard()
                     }
 
+                    FoodWeekCard(week: FoodWeek.make(days: EvaluationService.foodWeekDays(in: ctx),
+                                                     targetCalories: profile.macroTargets.calories,
+                                                     targetProteinG: profile.macroTargets.proteinG,
+                                                     windowDays: MicronutrientBoard.weekDays))
+
                     VStack(spacing: 0) {
                         link("Micronutrients", icon: "chart.bar.fill") {
                             MicronutrientsView(foodEntries: Array(todayFood), supplementLogs: Array(todaySupLogs),

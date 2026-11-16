@@ -13,6 +13,9 @@ struct SuggestionCard: View {
                 .font(theme.body(.subheadline))
                 .foregroundStyle(theme.colors.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
+            Text("App rule. You decide.")
+                .font(theme.body(.caption))
+                .foregroundStyle(theme.colors.textSecondary)
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 10) { buttons }
                 VStack(alignment: .leading, spacing: 10) { buttons }

@@ -62,37 +62,6 @@ final class GeminiRequestTests: XCTestCase {
         XCTAssertEqual(config["maxOutputTokens"] as? Int, 4096)
     }
 
-    func testScoreEvaluationBodyAsksForTwoComments() throws {
-        let score = HealthScore(value: 70, components: [])
-        let body = try json(GeminiService.scoreEvaluationRequestBody(sleep: score, readiness: score,
-                                                                     daySummaryText: "Check-in: energy 4/5"))
-        let config = try XCTUnwrap(body["generationConfig"] as? [String: Any])
-        XCTAssertEqual(config["responseMimeType"] as? String, "application/json")
-        let contents = try XCTUnwrap(body["contents"] as? [[String: Any]])
-        let parts = try XCTUnwrap(contents.first?["parts"] as? [[String: Any]])
-        let prompt = try XCTUnwrap(parts.first?["text"] as? String)
-        XCTAssertTrue(prompt.contains(#"{"sleepComment":"","readinessComment":""}"#))
-        XCTAssertFalse(prompt.contains("dietComment"))
-        XCTAssertTrue(prompt.contains("Check-in: energy 4/5"))
-    }
-
-    func testParseScoreEvaluationWithTwoComments() throws {
-        let data = try envelope(answer: #"{"sleepComment":"a","readinessComment":"c"}"#, thought: "thinking")
-        let texts = try GeminiService.parseScoreEvaluationResponse(data)
-        XCTAssertEqual(texts.sleepComment, "a")
-        XCTAssertEqual(texts.readinessComment, "c")
-    }
-
-    func testParseScoreEvaluationIgnoresTheDietCommentOfOlderJobs() throws {
-        let data = try envelope(answer: #"{"sleepComment":"a","dietComment":"b","readinessComment":"c"}"#)
-        XCTAssertEqual(try GeminiService.parseScoreEvaluationResponse(data).readinessComment, "c")
-    }
-
-    func testParseScoreEvaluationMissingCommentThrows() throws {
-        let data = try envelope(answer: #"{"sleepComment":"a"}"#)
-        XCTAssertThrowsError(try GeminiService.parseScoreEvaluationResponse(data))
-    }
-
     func testParseCoachSkipsThoughts() throws {
         let data = try envelope(answer: "Eat more fibre.", thought: "Planning the answer")
         XCTAssertEqual(try GeminiService.parseCoachResponse(data), "Eat more fibre.")
@@ -147,28 +116,19 @@ final class GeminiRequestTests: XCTestCase {
         XCTAssertTrue(prompt.contains("alcoholG*7"))
     }
 
-    func testDietEvaluationBodyAsksForOneComment() throws {
-        let score = HealthScore(value: 64, components: [ScoreComponent(label: "Protein", score: 0.5, weight: 0.3)])
-        let body = try json(GeminiService.dietEvaluationRequestBody(diet: score,
-                                                                    daySummaryText: "Calories: 1800 / 2400 kcal target"))
-        let config = try XCTUnwrap(body["generationConfig"] as? [String: Any])
-        XCTAssertEqual(config["responseMimeType"] as? String, "application/json")
-        let contents = try XCTUnwrap(body["contents"] as? [[String: Any]])
-        let parts = try XCTUnwrap(contents.first?["parts"] as? [[String: Any]])
-        let prompt = try XCTUnwrap(parts.first?["text"] as? String)
-        XCTAssertTrue(prompt.contains("64/100"))
-        XCTAssertTrue(prompt.contains("Protein: 50%"))
-        XCTAssertTrue(prompt.contains("Calories: 1800 / 2400 kcal target"))
-        XCTAssertTrue(prompt.contains(#"{"dietComment":""}"#))
-    }
-
-    func testParseDietEvaluation() throws {
-        let data = try envelope(answer: #"{"dietComment":"Good protein."}"#, thought: "thinking")
-        XCTAssertEqual(try GeminiService.parseDietEvaluationResponse(data), "Good protein.")
-    }
-
-    func testParseDietEvaluationWithoutCommentThrows() throws {
-        XCTAssertThrowsError(try GeminiService.parseDietEvaluationResponse(try envelope(answer: #"{"dietComment":""}"#)))
-        XCTAssertThrowsError(try GeminiService.parseDietEvaluationResponse(try envelope(answer: "not json")))
+    func testAnalysisPromptUsesThePlateOnlyWhenChosen() throws {
+        func prompt(_ diameter: Double?) throws -> String {
+            let body = try json(GeminiService.analysisRequestBody(jpegData: Data([0xFF, 0xD8]), note: nil,
+                                                                  plateDiameterCm: diameter))
+            let parts = try XCTUnwrap(((body["contents"] as? [[String: Any]])?.first?["parts"]) as? [[String: Any]])
+            return try XCTUnwrap(parts.first?["text"] as? String)
+        }
+        let onPlate = try prompt(24)
+        XCTAssertTrue(onPlate.contains("The plate diameter is 24 cm"))
+        XCTAssertFalse(onPlate.contains("no plate size reference"))
+        let withoutPlate = try prompt(nil)
+        XCTAssertFalse(withoutPlate.contains("plate diameter is"))
+        XCTAssertTrue(withoutPlate.contains("no plate size reference"))
+        XCTAssertTrue(withoutPlate.contains("net weight"))
     }
 }

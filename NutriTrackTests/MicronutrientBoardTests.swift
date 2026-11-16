@@ -160,4 +160,15 @@ final class MicronutrientBoardTests: XCTestCase {
         XCTAssertEqual(MicronutrientBoard.summary(of: readings), "2 low · 1 over limit")
         XCTAssertEqual(MicronutrientBoard.summary(of: [row(.range, 12, 8, 45)]), "On target")
     }
+
+    func testTheWeekSodiumLeavesOutLongSessionDaysWhenGiven() {
+        let salty = total { $0.calories = 2000; $0.sodiumMg = 3000 }
+        let built = MicronutrientBoard.make(total: salty, supplements: .empty, targets: targets,
+                                            period: .week(completeDays: 5), hasLongSession: false,
+                                            weekSodiumWithoutLongDays: (mg: 1800, leftOut: 2))
+        let sodium = reading("Sodium", in: built)
+        XCTAssertEqual(sodium.value, 1800)
+        XCTAssertNotEqual(sodium.word, "Over limit")
+        XCTAssertEqual(sodium.note, "Leaves out 2 days with a session over 2 h.")
+    }
 }

@@ -102,8 +102,6 @@ extension ModelJobRouter {
         resend: { BackgroundModelClient.shared.send($0) },
         applyMeal: { PendingMealStore.shared.applyAnalysisStatus(itemID: $0, status: $1) },
         applyCoach: { EvaluationService.saveCoachText($1, day: $0, in: Persistence.shared.container.viewContext) },
-        applyScores: { EvaluationService.applyScoreTexts($1, day: $0, in: Persistence.shared.container.viewContext) },
-        applyDiet: { EvaluationService.saveDietText($1, day: $0, in: Persistence.shared.container.viewContext) },
         notify: { ModelNotifier.post(kind: $0, succeeded: $1) },
         logEvent: { SyncEngine.shared?.log($0, $1) }
     )

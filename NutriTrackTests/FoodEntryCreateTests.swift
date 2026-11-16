@@ -145,22 +145,12 @@ final class FoodEntryCreateTests: XCTestCase {
         XCTAssertTrue(try ctx.fetch(FoodEntry.fetchRequest()).isEmpty)
     }
 
-    func testChangingAMealOnAClosedDayUpdatesItsScore() throws {
+    func testRemovingTheLastMealReopensAClosedDay() throws {
         let ctx = Persistence(inMemory: true).container.viewContext
-        let profile = UserProfile(context: ctx)
-        profile.id = UUID()
-        profile.sex = "male"
-        profile.goal = "maintain"
-        profile.age = 30
-        profile.weightKg = 80
-        profile.heightCm = 180
         let entry = try makeEntry(in: ctx)
-        EvaluationService.closeDay(Date(), profile: profile, isLogComplete: true, in: ctx)
-        let before = try XCTUnwrap(EvaluationService.todayEvaluation(in: ctx)).dietScore
-
+        EvaluationService.closeDay(Date(), isLogComplete: true, in: ctx)
         FoodEntry.logAgain(entry, multiplier: 2, in: ctx)
-        let afterRepeat = try XCTUnwrap(EvaluationService.todayEvaluation(in: ctx)).dietScore
-        XCTAssertGreaterThan(afterRepeat, before)
+        XCTAssertNotNil(try XCTUnwrap(EvaluationService.todayEvaluation(in: ctx)).closedAt)
 
         for meal in try ctx.fetch(FoodEntry.fetchRequest()) { meal.remove(from: ctx) }
         XCTAssertNil(try XCTUnwrap(EvaluationService.todayEvaluation(in: ctx)).closedAt)

@@ -19,8 +19,8 @@ struct ThemePreviewTile: View {
             hero
             Spacer(minLength: 0)
             HStack(spacing: 6) {
-                StatCard(label: "Sleep", value: "82")
-                StatCard(label: "Diet", value: "71")
+                StatCard(label: "Sleep", value: "7.5 h")
+                StatCard(label: "Protein", value: "92 g")
             }
         }
         .padding(12)

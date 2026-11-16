@@ -24,7 +24,7 @@ struct NutriTrackApp: App {
                     if phase == .active {
                         BackgroundModelClient.shared.resumeOrphanedJobs()
                         SyncEngine.shared?.logLaunch(inBackground: false)
-                        EvaluationService.closeMissedDaysAndRequestReview(in: persistence.container.viewContext)
+                        EvaluationService.autoCloseMissedDays(in: persistence.container.viewContext)
                         TargetService.refreshForCurrentProfile(in: persistence.container.viewContext)
                     }
                     if phase == .background { SyncEngine.shared?.client.sendNow() }

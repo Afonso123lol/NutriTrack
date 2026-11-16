@@ -9,8 +9,6 @@ final class ModelJobRouterTests: XCTestCase {
         var resent: [ModelJob] = []
         var meals: [(UUID, PendingMealStatus)] = []
         var coach: [(Date, String)] = []
-        var scores: [(Date, ScoreEvaluationTexts)] = []
-        var diet: [(Date, String)] = []
         var notified: [(ModelJobKind, Bool)] = []
         var events: [(String, [String: String])] = []
     }
@@ -26,8 +24,6 @@ final class ModelJobRouterTests: XCTestCase {
             resend: { recorder.resent.append($0) },
             applyMeal: { recorder.meals.append(($0, $1)) },
             applyCoach: { recorder.coach.append(($0, $1)) },
-            applyScores: { recorder.scores.append(($0, $1)) },
-            applyDiet: { recorder.diet.append(($0, $1)) },
             notify: { recorder.notified.append(($0, $1)) },
             logEvent: { recorder.events.append(($0, $1)) }
         )
@@ -53,14 +49,18 @@ final class ModelJobRouterTests: XCTestCase {
         XCTAssertNotNil(recorder.events.first?.1["durationS"])
     }
 
-    func testScoresSuccessIsApplied() throws {
+    func testObsoleteScoreJobIsDroppedWithoutApplyingOrNotifying() throws {
         let (router, store, recorder) = makeRouter()
-        let job = ModelJob(kind: .scoreEvaluation(day: day))
-        try store.add(job, body: Data())
-        router.handle(jobID: job.id, data: envelope(#"{"sleepComment":"s","dietComment":"d","readinessComment":"r"}"#),
-                      statusCode: 200, error: nil)
-        XCTAssertEqual(recorder.scores.first?.1.readinessComment, "r")
-        XCTAssertNil(store.job(id: job.id))
+        for kind in [ModelJobKind.scoreEvaluation(day: day), .dietEvaluation(day: day)] {
+            let job = ModelJob(kind: kind)
+            try store.add(job, body: Data())
+            router.handle(jobID: job.id, data: envelope(#"{"dietComment":"d"}"#), statusCode: 200, error: nil)
+            XCTAssertNil(store.job(id: job.id))
+        }
+        router.handle(jobID: UUID(), data: Data(), statusCode: 500, error: nil)
+        XCTAssertTrue(recorder.notified.isEmpty)
+        XCTAssertTrue(recorder.resent.isEmpty)
+        XCTAssertTrue(recorder.events.isEmpty)
     }
 
     func testServerErrorWithinLimitIsResent() throws {
@@ -154,27 +154,5 @@ final class ModelJobRouterTests: XCTestCase {
         XCTAssertNotNil(store.failures[kind])
         XCTAssertNil(store.job(id: job.id))
         XCTAssertEqual(recorder.notified.first?.1, false)
-    }
-
-    func testDietSuccessIsAppliedToTheDayOfTheJob() throws {
-        let (router, store, recorder) = makeRouter()
-        let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: day)!
-        let job = ModelJob(kind: .dietEvaluation(day: yesterday))
-        try store.add(job, body: Data())
-        router.handle(jobID: job.id, data: envelope(#"{"dietComment":"More fibre tomorrow."}"#), statusCode: 200, error: nil)
-        XCTAssertEqual(recorder.diet.first?.0, yesterday)
-        XCTAssertEqual(recorder.diet.first?.1, "More fibre tomorrow.")
-        XCTAssertNil(store.job(id: job.id))
-        XCTAssertEqual(recorder.notified.first?.1, true)
-    }
-
-    func testDietAnswerWithoutCommentFails() throws {
-        let (router, store, recorder) = makeRouter()
-        let job = ModelJob(kind: .dietEvaluation(day: day), attempt: ModelRetryPolicy.maxRetries)
-        try store.add(job, body: Data())
-        router.handle(jobID: job.id, data: envelope(#"{"other":"x"}"#), statusCode: 200, error: nil)
-        XCTAssertTrue(recorder.diet.isEmpty)
-        XCTAssertEqual(recorder.notified.first?.1, false)
-        XCTAssertNotNil(store.failures[job.kind])
     }
 }

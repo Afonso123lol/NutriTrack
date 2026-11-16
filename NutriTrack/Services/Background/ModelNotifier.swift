@@ -7,7 +7,7 @@ enum ModelNotifier {
     }
 
     static func post(kind: ModelJobKind, succeeded: Bool) {
-        guard ModelNotification.shouldNotify(applicationState: UIApplication.shared.applicationState) else { return }
+        guard !kind.isObsolete, ModelNotification.shouldNotify(applicationState: UIApplication.shared.applicationState) else { return }
         let text = ModelNotification.content(for: kind, succeeded: succeeded)
         let content = UNMutableNotificationContent()
         content.title = text.title

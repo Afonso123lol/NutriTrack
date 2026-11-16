@@ -7,95 +7,6 @@ nonisolated enum GeminiService {
     nonisolated static let attemptsPerModel = 2
     nonisolated static let baseURL = "https://generativelanguage.googleapis.com/v1beta/models"
 
-    nonisolated private static func buildScoreEvaluationPrompt(sleep: HealthScore, readiness: HealthScore,
-                                                               daySummaryText: String) -> String {
-        """
-        You are a concise personal health coach.
-
-        SCORES FOR TODAY:
-        - Sleep score: \(sleep.value)/100 (\(renderComponents(sleep)))
-        - Readiness score: \(readiness.value)/100 (\(renderComponents(readiness)))
-
-        CONTEXT:
-        \(daySummaryText)
-
-        TASK: For EACH of the two scores, write 2-3 specific sentences: explain what drove the number, then give one concrete action for today. Write in English.
-
-        CRITICAL OUTPUT RULE: Work through your reasoning internally — do NOT write out your reasoning. Your entire response must be the final JSON object alone, nothing before or after it.
-
-        Return ONLY a valid JSON object:
-        {"sleepComment":"","readinessComment":""}
-        """
-    }
-
-    nonisolated static func parseScoreEvaluationResponse(_ data: Data) throws -> ScoreEvaluationTexts {
-        let object = try answerObject(data)
-        guard let sleep = object["sleepComment"] as? String,
-              let readiness = object["readinessComment"] as? String else {
-            throw GeminiError.parsingError("Missing score comments")
-        }
-        return ScoreEvaluationTexts(sleepComment: sleep, readinessComment: readiness)
-    }
-
-    nonisolated private static func renderComponents(_ score: HealthScore) -> String {
-        score.components
-            .map { "\($0.label): \(Int(($0.score * 100).rounded()))% × weight \($0.weight)" }
-            .joined(separator: ", ")
-    }
-
-    nonisolated private static func buildDietEvaluationPrompt(diet: HealthScore, daySummaryText: String) -> String {
-        """
-        You are a concise personal nutrition coach.
-
-        DIET SCORE FOR THE DAY: \(diet.value)/100 (\(renderComponents(diet)))
-
-        DAY SUMMARY:
-        \(daySummaryText)
-
-        TASK: Write 2-3 specific sentences: explain what drove the score, then give one concrete action for the next day. Use the same language as the meal names in the day summary (default English).
-
-        CRITICAL OUTPUT RULE: Work through your reasoning internally — do NOT write out your reasoning. Your entire response must be the final JSON object alone, nothing before or after it.
-
-        Return ONLY a valid JSON object:
-        {"dietComment":""}
-        """
-    }
-
-    nonisolated static func dietEvaluationRequestBody(diet: HealthScore, daySummaryText: String) throws -> Data {
-        let prompt = buildDietEvaluationPrompt(diet: diet, daySummaryText: daySummaryText)
-        let body: [String: Any] = [
-            "contents": [["parts": [["text": prompt]]]],
-            "generationConfig": [
-                "temperature": 0.6,
-                "maxOutputTokens": 4096,
-                "responseMimeType": "application/json"
-            ]
-        ]
-        return try JSONSerialization.data(withJSONObject: body)
-    }
-
-    nonisolated private static func answerObject(_ data: Data) throws -> [String: Any] {
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let candidates = json["candidates"] as? [[String: Any]],
-              let content = candidates.first?["content"] as? [String: Any],
-              let parts = content["parts"] as? [[String: Any]] else {
-            throw GeminiError.parsingError("Unexpected response structure")
-        }
-        let jsonString = extractJSONObject(from: answerText(fromParts: parts))
-        guard let jsonData = jsonString.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
-            throw GeminiError.parsingError("Invalid JSON structure")
-        }
-        return object
-    }
-
-    nonisolated static func parseDietEvaluationResponse(_ data: Data) throws -> String {
-        guard let comment = try answerObject(data)["dietComment"] as? String, !comment.isEmpty else {
-            throw GeminiError.parsingError("Missing diet comment")
-        }
-        return comment
-    }
-
     nonisolated private static func sanitised(_ text: String, limit: Int) -> String {
         String(text.unicodeScalars.filter { $0.value >= 32 }.prefix(limit).map(Character.init))
     }
@@ -141,6 +52,8 @@ STEP 3 — NUTRITION CALCULATION: For each component, apply the values the user 
         var context = ""
         if let diameter = plateDiameterCm, diameter > 0 {
             context += " The plate diameter is \(Int(diameter)) cm — use this as a scale reference for all portion estimates."
+        } else {
+            context += " There is no plate size reference: the food may be in a bowl, a container, a package or in the hand. Count whole units where possible (fruit, slices, pieces) and read the net weight on any visible package; never assume a plate size."
         }
         if let note = note, !note.isEmpty {
             let sanitised = sanitised(note, limit: 500)
@@ -296,20 +209,6 @@ STEP 3 — NUTRITION CALCULATION: For each component, apply USDA FoodData Centra
         let body: [String: Any] = [
             "contents": [["parts": [["text": prompt]]]],
             "generationConfig": ["temperature": 0.7, "maxOutputTokens": 4096]
-        ]
-        return try JSONSerialization.data(withJSONObject: body)
-    }
-
-    nonisolated static func scoreEvaluationRequestBody(sleep: HealthScore, readiness: HealthScore,
-                                                       daySummaryText: String) throws -> Data {
-        let prompt = buildScoreEvaluationPrompt(sleep: sleep, readiness: readiness, daySummaryText: daySummaryText)
-        let body: [String: Any] = [
-            "contents": [["parts": [["text": prompt]]]],
-            "generationConfig": [
-                "temperature": 0.6,
-                "maxOutputTokens": 4096,
-                "responseMimeType": "application/json"
-            ]
         ]
         return try JSONSerialization.data(withJSONObject: body)
     }

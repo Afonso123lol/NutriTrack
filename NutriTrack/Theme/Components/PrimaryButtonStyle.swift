@@ -28,14 +28,15 @@ extension ButtonStyle where Self == PrimaryButtonStyle {
 
 struct CompactButtonStyle: ButtonStyle {
     @Environment(\.theme) private var theme
+    @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(theme.body(.subheadline).weight(.semibold))
-            .foregroundStyle(theme.colors.onAccent)
+            .foregroundStyle(isEnabled ? theme.colors.onAccent : theme.colors.textMuted)
             .padding(.horizontal, 18)
             .frame(minHeight: 44)
-            .background(theme.colors.accent,
+            .background(isEnabled ? theme.colors.accent : theme.colors.textMuted.opacity(0.3),
                         in: RoundedRectangle(cornerRadius: theme.shape.controlRadius, style: .continuous))
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
             .animation(.easeOut(duration: 0.15), value: configuration.isPressed)

@@ -8,7 +8,6 @@ final class DayCloseTests: XCTestCase {
     private let calendar = Calendar.current
     private var now: Date { calendar.date(bySettingHour: 12, minute: 0, second: 0, of: Date())! }
     private func day(_ offset: Int) -> Date { calendar.date(byAdding: .day, value: offset, to: now)! }
-    private func score(_ value: Int) -> HealthScore { HealthScore(value: value, components: []) }
 
     private func makeStore() -> (NSManagedObjectContext, UserProfile) {
         let ctx = Persistence(inMemory: true).container.viewContext
@@ -36,55 +35,34 @@ final class DayCloseTests: XCTestCase {
         return entry
     }
 
-    private func component(_ label: String, in score: HealthScore) -> Double {
-        score.components.first { $0.label == label }?.score ?? -1
-    }
-
-    func testLiveDietScoreNeedsFood() {
-        let (ctx, profile) = makeStore()
-        XCTAssertNil(EvaluationService.computeTodayScores(profile: profile, in: ctx).diet)
-        addMeal(ctx, at: Date(), calories: 400)
-        XCTAssertNotNil(EvaluationService.computeTodayScores(profile: profile, in: ctx).diet)
-    }
-
-    func testSmallBalancedMealScoresWellWhileOpenAndLowOnceClosed() throws {
-        let (ctx, profile) = makeStore()
-        let targets = profile.macroTargets
-        addMeal(ctx, at: Date(), calories: targets.calories * 0.25, proteinG: targets.proteinG * 0.25)
-        let live = try XCTUnwrap(EvaluationService.computeTodayScores(profile: profile, in: ctx).diet)
-        XCTAssertEqual(component("Protein", in: live), 1, accuracy: 0.001)
-        XCTAssertEqual(component("Calories", in: live), 1, accuracy: 0.001)
-
-        XCTAssertTrue(EvaluationService.closeDay(Date(), profile: profile, isLogComplete: true, in: ctx))
-        let closed = try XCTUnwrap(EvaluationService.computeTodayScores(profile: profile, in: ctx).diet)
-        XCTAssertEqual(component("Protein", in: closed), 0.25, accuracy: 0.001)
-        XCTAssertEqual(component("Calories", in: closed), 0, accuracy: 0.001)
-    }
-
-    func testCloseDayStoresTheFinalScoreAndTheMarks() throws {
-        let (ctx, profile) = makeStore()
-        addMeal(ctx, at: Date(), calories: profile.macroTargets.calories, proteinG: profile.macroTargets.proteinG)
+    func testCloseDayStoresTheMarks() throws {
+        let (ctx, _) = makeStore()
+        addMeal(ctx, at: Date(), calories: 600, proteinG: 40)
         let closedAt = Date(timeIntervalSince1970: 1_800_000_000)
-        XCTAssertTrue(EvaluationService.closeDay(Date(), profile: profile, isLogComplete: true, now: closedAt, in: ctx))
+        XCTAssertTrue(EvaluationService.closeDay(Date(), isLogComplete: true, now: closedAt, in: ctx))
         let evaluation = try XCTUnwrap(EvaluationService.todayEvaluation(in: ctx))
-        let expected = try XCTUnwrap(EvaluationService.dietScore(for: Date(), profile: profile, isClosed: true, in: ctx))
-        XCTAssertEqual(Int(evaluation.dietScore), expected.value)
-        XCTAssertGreaterThan(evaluation.dietScore, 0)
         XCTAssertEqual(evaluation.closedAt, closedAt)
         XCTAssertTrue(evaluation.isLogComplete)
+        XCTAssertEqual(evaluation.dietScore, 0)
         XCTAssertNil(evaluation.generatedAt)
     }
 
     func testADayWithoutFoodIsNotClosed() {
-        let (ctx, profile) = makeStore()
-        XCTAssertFalse(EvaluationService.closeDay(Date(), profile: profile, isLogComplete: true, in: ctx))
+        let (ctx, _) = makeStore()
+        XCTAssertFalse(EvaluationService.closeDay(Date(), isLogComplete: true, in: ctx))
         XCTAssertNil(EvaluationService.todayEvaluation(in: ctx))
     }
 
+    func testADayWithZeroCalorieFoodStillCloses() {
+        let (ctx, _) = makeStore()
+        addMeal(ctx, at: Date(), calories: 0, name: "Black coffee")
+        XCTAssertTrue(EvaluationService.closeDay(Date(), isLogComplete: true, in: ctx))
+    }
+
     func testAutoCloseClosesMissedDaysThatHaveFood() throws {
-        let (ctx, profile) = makeStore()
+        let (ctx, _) = makeStore()
         for offset in [0, -1, -3, -20] { addMeal(ctx, at: day(offset), calories: 500) }
-        let closed = EvaluationService.autoCloseMissedDays(profile: profile, now: now, in: ctx)
+        let closed = EvaluationService.autoCloseMissedDays(now: now, in: ctx)
         XCTAssertEqual(closed, [-1, -3].map { calendar.startOfDay(for: day($0)) })
         let yesterday = try XCTUnwrap(EvaluationService.evaluation(for: day(-1), in: ctx))
         XCTAssertNotNil(yesterday.closedAt)
@@ -96,38 +74,70 @@ final class DayCloseTests: XCTestCase {
     }
 
     func testAutoCloseLeavesClosedDaysAlone() {
-        let (ctx, profile) = makeStore()
+        let (ctx, _) = makeStore()
         addMeal(ctx, at: day(-1), calories: 500)
-        EvaluationService.closeDay(day(-1), profile: profile, isLogComplete: true, in: ctx)
-        XCTAssertTrue(EvaluationService.autoCloseMissedDays(profile: profile, now: now, in: ctx).isEmpty)
+        EvaluationService.closeDay(day(-1), isLogComplete: true, in: ctx)
+        XCTAssertTrue(EvaluationService.autoCloseMissedDays(now: now, in: ctx).isEmpty)
         XCTAssertEqual(EvaluationService.evaluation(for: day(-1), in: ctx)?.isLogComplete, true)
     }
 
-    func testChangingMealsOnAClosedDayRecalculatesTheScore() throws {
-        let (ctx, profile) = makeStore()
-        let targets = profile.macroTargets
-        let meal = addMeal(ctx, at: Date(), calories: targets.calories * 0.5, proteinG: targets.proteinG * 0.5)
-        EvaluationService.closeDay(Date(), profile: profile, isLogComplete: true, in: ctx)
-        let before = try XCTUnwrap(EvaluationService.todayEvaluation(in: ctx)).dietScore
-
-        meal.calories = targets.calories
-        meal.proteinG = targets.proteinG
+    func testChangingMealsOnAClosedDayKeepsItClosed() throws {
+        let (ctx, _) = makeStore()
+        let meal = addMeal(ctx, at: Date(), calories: 500)
+        EvaluationService.closeDay(Date(), isLogComplete: true, in: ctx)
+        meal.calories = 900
         try ctx.save()
         EvaluationService.refreshClosedDay(containing: Date(), in: ctx)
-        XCTAssertGreaterThan(try XCTUnwrap(EvaluationService.todayEvaluation(in: ctx)).dietScore, before)
+        let evaluation = try XCTUnwrap(EvaluationService.todayEvaluation(in: ctx))
+        XCTAssertNotNil(evaluation.closedAt)
+        XCTAssertTrue(evaluation.isLogComplete)
     }
 
     func testRemovingEveryMealReopensTheDay() throws {
-        let (ctx, profile) = makeStore()
+        let (ctx, _) = makeStore()
         let meal = addMeal(ctx, at: Date(), calories: 900, proteinG: 60)
-        EvaluationService.closeDay(Date(), profile: profile, isLogComplete: true, in: ctx)
+        EvaluationService.closeDay(Date(), isLogComplete: true, in: ctx)
         ctx.delete(meal)
         try ctx.save()
         EvaluationService.refreshClosedDay(containing: Date(), in: ctx)
         let evaluation = try XCTUnwrap(EvaluationService.todayEvaluation(in: ctx))
         XCTAssertNil(evaluation.closedAt)
-        XCTAssertFalse(evaluation.isLogComplete)
-        XCTAssertEqual(evaluation.dietScore, 0)
+        XCTAssertTrue(evaluation.isLogComplete)
+    }
+
+    func testACompleteDayThatSwapsItsOnlyMealStaysComplete() throws {
+        let (ctx, _) = makeStore()
+        let wrong = addMeal(ctx, at: day(-1), calories: 700)
+        EvaluationService.closeDay(day(-1), isLogComplete: true, in: ctx)
+        wrong.remove(from: ctx)
+        XCTAssertNil(EvaluationService.evaluation(for: day(-1), in: ctx)?.closedAt)
+        addMeal(ctx, at: day(-1), calories: 650)
+        EvaluationService.autoCloseMissedDays(now: now, in: ctx)
+        let evaluation = try XCTUnwrap(EvaluationService.evaluation(for: day(-1), in: ctx))
+        XCTAssertNotNil(evaluation.closedAt)
+        XCTAssertTrue(evaluation.isLogComplete)
+    }
+
+    func testADayWithOnlySupplementsIsNotClosed() {
+        let (ctx, _) = makeStore()
+        let log = SupplementLog(context: ctx)
+        log.id = UUID()
+        log.timestamp = day(-1)
+        try? ctx.save()
+        XCTAssertFalse(EvaluationService.closeDay(day(-1), isLogComplete: true, in: ctx))
+        XCTAssertTrue(EvaluationService.autoCloseMissedDays(now: now, in: ctx).isEmpty)
+    }
+
+    func testShiftingByDaysKeepsMidnightAcrossTheClockChange() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "Europe/Lisbon"))
+        let afterChange = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 4, day: 2)))
+        let original = NSTimeZone.default
+        NSTimeZone.default = calendar.timeZone
+        defer { NSTimeZone.default = original }
+        let weekBefore = TrainingService.shifted(afterChange, days: -7)
+        XCTAssertEqual(Calendar.current.dateComponents([.hour, .day, .month], from: weekBefore),
+                       DateComponents(month: 3, day: 26, hour: 0))
     }
 
     func testRefreshIgnoresDaysThatAreStillOpen() {
@@ -137,61 +147,47 @@ final class DayCloseTests: XCTestCase {
         XCTAssertNil(EvaluationService.todayEvaluation(in: ctx))
     }
 
-    func testCheckInScoresDoNotTouchTheDietScore() throws {
-        let (ctx, profile) = makeStore()
-        addMeal(ctx, at: Date(), calories: profile.macroTargets.calories, proteinG: profile.macroTargets.proteinG)
-        EvaluationService.closeDay(Date(), profile: profile, isLogComplete: true, in: ctx)
-        let diet = try XCTUnwrap(EvaluationService.todayEvaluation(in: ctx)).dietScore
-
-        EvaluationService.upsert(sleep: score(70), readiness: score(90), in: ctx)
-        let evaluation = try XCTUnwrap(EvaluationService.todayEvaluation(in: ctx))
-        XCTAssertEqual(evaluation.dietScore, diet)
-        XCTAssertEqual(evaluation.sleepScore, 70)
-        XCTAssertEqual(evaluation.readinessScore, 90)
-        XCTAssertNotNil(evaluation.generatedAt)
-        XCTAssertNotNil(evaluation.closedAt)
-    }
-
     func testDietHistoryOnlyListsDaysClosedAsComplete() throws {
-        let (ctx, profile) = makeStore()
+        let (ctx, _) = makeStore()
         addMeal(ctx, at: day(-1), calories: 900)
-        EvaluationService.closeDay(day(-1), profile: profile, isLogComplete: true, in: ctx)
+        EvaluationService.closeDay(day(-1), isLogComplete: true, in: ctx)
         addMeal(ctx, at: day(-2), calories: 700)
-        EvaluationService.closeDay(day(-2), profile: profile, isLogComplete: false, in: ctx)
-        EvaluationService.upsert(sleep: score(70), readiness: score(90), in: ctx)
+        EvaluationService.closeDay(day(-2), isLogComplete: false, in: ctx)
 
-        let dietRequest = DailyEvaluation.fetchRequest()
-        dietRequest.predicate = EvaluationService.dietHistoryPredicate(since: day(-14))
-        let diet = try ctx.fetch(dietRequest)
-        XCTAssertEqual(diet.map(\.date), [calendar.startOfDay(for: day(-1))])
-
-        let otherRequest = DailyEvaluation.fetchRequest()
-        otherRequest.predicate = EvaluationService.historyPredicate(since: day(-14))
-        XCTAssertEqual(try ctx.fetch(otherRequest).map(\.date), [calendar.startOfDay(for: Date())])
-    }
-
-    func testDietSummaryNamesMealsAndTargets() throws {
-        let (ctx, profile) = makeStore()
-        addMeal(ctx, at: Date(), calories: 640, proteinG: 41, name: "Chicken and rice")
-        let summary = try XCTUnwrap(EvaluationService.dietSummaryText(for: Date(), profile: profile, in: ctx))
-        XCTAssertTrue(summary.contains("Chicken and rice"))
-        XCTAssertTrue(summary.contains("Calories: 640 / \(Int(profile.macroTargets.calories)) kcal target"))
-        XCTAssertNil(EvaluationService.dietSummaryText(for: day(-1), profile: profile, in: ctx))
+        let request = DailyEvaluation.fetchRequest()
+        request.predicate = EvaluationService.dietHistoryPredicate(since: day(-14))
+        XCTAssertEqual(try ctx.fetch(request).map(\.date), [calendar.startOfDay(for: day(-1))])
     }
 
     func testWeekIntakesComeOnlyFromDaysClosedAsComplete() {
-        let (ctx, profile) = makeStore()
+        let (ctx, _) = makeStore()
         addMeal(ctx, at: day(-1), calories: 2000)
         addMeal(ctx, at: day(-2), calories: 1500)
         addMeal(ctx, at: day(-3), calories: 900)
         addMeal(ctx, at: day(-8), calories: 2600)
-        EvaluationService.closeDay(day(-1), profile: profile, isLogComplete: true, in: ctx)
-        EvaluationService.closeDay(day(-2), profile: profile, isLogComplete: true, in: ctx)
-        EvaluationService.closeDay(day(-3), profile: profile, isLogComplete: false, in: ctx)
-        EvaluationService.closeDay(day(-8), profile: profile, isLogComplete: true, in: ctx)
+        EvaluationService.closeDay(day(-1), isLogComplete: true, in: ctx)
+        EvaluationService.closeDay(day(-2), isLogComplete: true, in: ctx)
+        EvaluationService.closeDay(day(-3), isLogComplete: false, in: ctx)
+        EvaluationService.closeDay(day(-8), isLogComplete: true, in: ctx)
 
         let intakes = EvaluationService.completeDayIntakes(now: now, in: ctx)
         XCTAssertEqual(intakes.map(\.food.calories).sorted(), [1500, 2000])
         XCTAssertEqual(WeekIntake.average(intakes).total.calories, 1750, accuracy: 0.0001)
+    }
+
+    func testFoodWeekDaysCarryTheLongSessionMark() {
+        let (ctx, _) = makeStore()
+        addMeal(ctx, at: day(-1), calories: 2000, proteinG: 120)
+        addMeal(ctx, at: day(-2), calories: 1500)
+        addMeal(ctx, at: day(-3), calories: 900)
+        TrainingService.logAerobic(modality: .walk, durationMin: 150, rpe: 3, at: day(-2), in: ctx)
+        EvaluationService.closeDay(day(-1), isLogComplete: true, in: ctx)
+        EvaluationService.closeDay(day(-2), isLogComplete: true, in: ctx)
+        EvaluationService.closeDay(day(-3), isLogComplete: false, in: ctx)
+
+        let days = EvaluationService.foodWeekDays(now: now, in: ctx).sorted { $0.calories < $1.calories }
+        XCTAssertEqual(days.map(\.calories), [1500, 2000])
+        XCTAssertEqual(days.map(\.hasLongSession), [true, false])
+        XCTAssertEqual(days.last?.proteinG, 120)
     }
 }

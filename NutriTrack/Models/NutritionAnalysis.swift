@@ -116,11 +116,6 @@ nonisolated struct DailySummary: Sendable {
     let supplementsDescription: String
 }
 
-nonisolated struct ScoreEvaluationTexts: Sendable {
-    let sleepComment: String
-    let readinessComment: String
-}
-
 nonisolated struct UserProfileData: Sendable {
     let goal: String
     let sex: String

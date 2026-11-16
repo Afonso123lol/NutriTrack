@@ -10,15 +10,25 @@ struct CameraView: View {
     @State private var showPicker = false
     @State private var showLibrary = false
     @State private var note = ""
-    @State private var plateDiameter: Double = 26
+    @State private var isOnPlate = false
+    @State private var isScanning = false
     @State private var eatenAt = Date()
     @FocusState private var isWritingNote: Bool
 
     private var trimmedNote: String { note.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var usualPlateDiameter: Double { profile.plateDiameterCm > 0 ? profile.plateDiameterCm : 26 }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 20) {
+                Button {
+                    isScanning = true
+                } label: {
+                    Label("Scan a barcode", systemImage: "barcode.viewfinder")
+                }
+                .buttonStyle(.themedOutline)
+                .padding(.horizontal)
+
                 if let image = capturedImage {
                     Image(uiImage: image)
                         .resizable()
@@ -50,16 +60,19 @@ struct CameraView: View {
                         .accessibilityAddTraits(.isButton)
                 }
 
-                Stepper(value: $plateDiameter, in: 18...34, step: 1) {
-                    HStack {
-                        Image(systemName: "circle.dashed")
-                            .foregroundStyle(theme.colors.textSecondary)
-                        Text("Plate: \(Int(plateDiameter)) cm")
-                            .font(theme.body(.subheadline))
-                            .foregroundStyle(theme.colors.textPrimary)
+                if capturedImage != nil {
+                    Toggle(isOn: $isOnPlate) {
+                        HStack {
+                            Image(systemName: "circle.dashed")
+                                .foregroundStyle(theme.colors.textSecondary)
+                                .accessibilityHidden(true)
+                            Text("On my usual plate (\(Int(usualPlateDiameter)) cm)")
+                                .font(theme.body(.subheadline))
+                                .foregroundStyle(theme.colors.textPrimary)
+                        }
                     }
+                    .padding(.horizontal)
                 }
-                .padding(.horizontal)
 
                 DatePicker(selection: $eatenAt, in: ...Date()) {
                     HStack {
@@ -72,7 +85,7 @@ struct CameraView: View {
                 }
                 .padding(.horizontal)
 
-                TextField(capturedImage == nil ? "What you ate: foods, amounts, brands, cooking method..."
+                TextField(capturedImage == nil ? "What you ate: 1 banana, 2 slices of bread, 200 g chicken..."
                                                : "Note (optional): cooking method, spices, portions...",
                           text: $note, axis: .vertical)
                     .font(theme.body(.body))
@@ -94,7 +107,7 @@ struct CameraView: View {
                 Spacer()
 
                 Button("Analyse Meal") {
-                    let diameter: Double? = plateDiameter > 0 ? plateDiameter : nil
+                    let diameter: Double? = capturedImage != nil && isOnPlate ? usualPlateDiameter : nil
                     pendingStore.submit(image: capturedImage, note: trimmedNote.isEmpty ? nil : trimmedNote,
                                         plateDiameter: diameter, eatenAt: eatenAt)
                     dismiss()
@@ -107,7 +120,11 @@ struct CameraView: View {
             .background(theme.colors.background.ignoresSafeArea())
             .navigationTitle("Log Meal")
             .navigationBarTitleDisplayMode(.inline)
-            .onAppear { plateDiameter = profile.plateDiameterCm > 0 ? profile.plateDiameterCm : 26 }
+            .sheet(isPresented: $isScanning) {
+                ScanFoodView(eatenAt: eatenAt,
+                             onDescribe: { isWritingNote = true },
+                             onFinish: { dismiss() })
+            }
             .sheet(isPresented: $showPicker) {
                 ImagePicker(image: $capturedImage, isPresented: $showPicker, sourceType: .camera)
             }

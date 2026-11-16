@@ -103,6 +103,13 @@ struct SettingsView: View {
                     }
                 }
                 .listRowBackground(theme.colors.surface)
+
+                Section("Data sources") {
+                    Link(destination: OpenFoodFacts.siteURL) {
+                        settingsLabel("barcode", OpenFoodFacts.attribution)
+                    }
+                }
+                .listRowBackground(theme.colors.surface)
             }
             .scrollContentBackground(.hidden)
             .background(theme.colors.background.ignoresSafeArea())

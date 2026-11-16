@@ -72,12 +72,14 @@ final class ModelJobTests: XCTestCase {
         XCTAssertEqual(ModelNotification.content(for: kind, succeeded: false).title, "Meal analysis failed")
     }
 
-    func testDietEvaluationJobRoundTripsAndIsNamed() throws {
-        let job = ModelJob(kind: .dietEvaluation(day: Date(timeIntervalSince1970: 1_700_000_000)))
-        let decoded = try JSONDecoder().decode(ModelJob.self, from: JSONEncoder().encode(job))
-        XCTAssertEqual(decoded, job)
-        XCTAssertEqual(job.eventDetails["kind"], "dietEvaluation")
-        XCTAssertEqual(ModelNotification.content(for: job.kind, succeeded: true).title, "Your diet review is ready")
-        XCTAssertEqual(ModelNotification.content(for: job.kind, succeeded: false).title, "Diet review failed")
+    func testOldScoreJobsStillDecodeAndAreObsolete() throws {
+        let day = Date(timeIntervalSince1970: 1_700_000_000)
+        for kind in [ModelJobKind.scoreEvaluation(day: day), .dietEvaluation(day: day)] {
+            let job = ModelJob(kind: kind)
+            XCTAssertEqual(try JSONDecoder().decode(ModelJob.self, from: JSONEncoder().encode(job)), job)
+            XCTAssertTrue(kind.isObsolete)
+        }
+        XCTAssertFalse(ModelJobKind.dailyCoach(day: day).isObsolete)
+        XCTAssertFalse(ModelJobKind.mealAnalysis(pendingItemID: UUID()).isObsolete)
     }
 }

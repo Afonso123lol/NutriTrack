@@ -20,7 +20,7 @@ struct TodayView: View {
     @State private var confirmClose = false
     @State private var isCheckingIn = false
     @State private var isAskingDayEnergy = false
-    @State private var detail: ScoreKind?
+    @State private var detail: TodayDetail?
     @State private var aerobicLog: TrainingView.AerobicLog?
     @State private var strengthLog: PlannedSession?
     @State private var scrollOffset: CGFloat = 0
@@ -124,7 +124,6 @@ struct TodayView: View {
 
     var body: some View {
         NavigationStack {
-            let scores = EvaluationService.computeTodayScores(profile: profile, in: ctx)
             let checkIn = todayCheckIn.first
             let color = TrainingService.color(on: Date(), in: ctx)
             let badDays = badDaysThisWeek
@@ -191,8 +190,20 @@ struct TodayView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
 
-                    HeroScore(readiness: scores.readiness?.value, sleep: scores.sleep?.value, diet: scores.diet?.value,
-                              weekPath: path, tone: tone) { detail = $0 }
+                    let eaten = NutritionAnalysis.sum(todayFood.map(\.analysis) + todaySupLogs.compactMap(\.snapshotNutrients))
+                    DayOverviewRow(
+                        overview: DayOverview.make(color: color, hasCheckIn: checkIn != nil,
+                                                   sleepHours: checkIn?.sleepHours, sleepNeed: profile.sleepNeed,
+                                                   eatenKcal: eaten.calories, targetKcal: profile.macroTargets.calories,
+                                                   proteinG: eaten.proteinG, targetProteinG: profile.macroTargets.proteinG),
+                        tone: tone, weekPath: path,
+                        onSleep: { detail = .sleep },
+                        onFood: { onNavigate(.nutrition) })
+                    if let board = TrainingService.stateBoard(on: Date(), profile: profile, in: ctx) {
+                        DayStateBoardView(board: board, onSleep: { detail = .sleep }) { index in
+                            detail = ScaleDetailView.Scale(rawValue: index).map(TodayDetail.scale)
+                        }
+                    }
 
                     actionCard(action, next: next)
                     if let next, !next.isDone, let checkIn,
@@ -233,8 +244,11 @@ struct TodayView: View {
             .task {
                 if profile.refreshAge() { try? ctx.save() }
             }
-            .navigationDestination(item: $detail) { kind in
-                ScoreDetailView(kind: kind, liveScore: liveScore(kind, scores), profile: profile)
+            .navigationDestination(item: $detail) { destination in
+                switch destination {
+                case .sleep: SleepDetailView(profile: profile)
+                case .scale(let scale): ScaleDetailView(scale: scale)
+                }
             }
             .sheet(isPresented: $isCheckingIn) {
                 CheckInSheet(profile: profile, bedtime: bedtime) { answers in
@@ -243,7 +257,6 @@ struct TodayView: View {
                         DailyCheckIn.create(answers, bedtime: keptBedtime, in: ctx)
                         sleepStartTimestamp = 0
                     }
-                    EvaluationService.ensureTodayEvaluation(profile: profile, in: ctx)
                 }
             }
             .sheet(isPresented: $isAskingDayEnergy) {
@@ -274,12 +287,9 @@ struct TodayView: View {
         }
     }
 
-    private func liveScore(_ kind: ScoreKind, _ scores: TodayScores) -> HealthScore? {
-        switch kind {
-        case .sleep: return scores.sleep
-        case .diet: return scores.diet
-        case .readiness: return scores.readiness
-        }
+    private enum TodayDetail: Hashable {
+        case sleep
+        case scale(ScaleDetailView.Scale)
     }
 
     private var sleepButton: some View {
@@ -333,16 +343,16 @@ struct TodayView: View {
             }
         case .closeDay:
             ActionCard(eyebrow: "Evening", title: "Close the day",
-                       detail: "It locks today's diet score and asks the coach for a review.",
+                       detail: "Mark today as complete so it counts in your food week.",
                        buttonTitle: "Close day") {
                 confirmClose = true
             }
             .closeDayDialog(isPresented: $confirmClose, onConfirm: closeToday)
         case .dayClosed:
-            ActionCard(eyebrow: "Day closed", title: "Diet \(todayEvaluations.first?.dietScore ?? 0)",
-                       detail: "The day is locked. You can still fix meals; the score is recalculated.",
-                       buttonTitle: "Read the review") {
-                detail = .diet
+            ActionCard(eyebrow: "Day closed", title: "Counted in your week",
+                       detail: "You can still fix meals; the week updates.",
+                       buttonTitle: "See your week") {
+                onNavigate(.nutrition)
             }
         case nil:
             EmptyView()
@@ -373,25 +383,21 @@ struct TodayView: View {
     }
 
     private enum Tile: Hashable {
-        case eaten
-        case protein
         case week
         case weight
     }
 
     private func tiles(path: WeekPath?) -> some View {
         let trend = weightTrend
-        var kinds: [Tile] = [.eaten, .protein]
+        var kinds: [Tile] = []
         if let path, path.totalPlanned > 0 { kinds.append(.week) }
         if trend != nil { kinds.append(.weight) }
         let rows = stride(from: 0, to: kinds.count, by: 2).map { Array(kinds[$0..<min($0 + 2, kinds.count)]) }
-        let targets = profile.macroTargets
-        let eaten = NutritionAnalysis.sum(todayFood.map(\.analysis))
         return Grid(horizontalSpacing: 10, verticalSpacing: 10) {
             ForEach(rows, id: \.self) { row in
                 GridRow {
                     ForEach(row, id: \.self) { kind in
-                        tile(kind, eaten: eaten, targets: targets, path: path, trend: trend)
+                        tile(kind, path: path, trend: trend)
                     }
                     if row.count == 1 {
                         Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
@@ -402,21 +408,9 @@ struct TodayView: View {
     }
 
     @ViewBuilder
-    private func tile(_ kind: Tile, eaten: NutritionAnalysis, targets: MacroTargets, path: WeekPath?,
+    private func tile(_ kind: Tile, path: WeekPath?,
                       trend: (current: Double, change: Double?)?) -> some View {
         switch kind {
-        case .eaten:
-            tileButton(.nutrition) {
-                MetricTile(label: "Eaten", value: "\(Int(eaten.calories.rounded()))",
-                           unit: "/ \(Int(targets.calories.rounded())) kcal",
-                           bar: .make(value: eaten.calories, target: targets.calories), color: theme.colors.diet)
-            }
-        case .protein:
-            tileButton(.nutrition) {
-                MetricTile(label: "Protein", value: "\(Int(eaten.proteinG.rounded()))",
-                           unit: "/ \(Int(targets.proteinG.rounded())) g",
-                           bar: .make(value: eaten.proteinG, target: targets.proteinG), color: theme.colors.protein)
-            }
         case .week:
             tileButton(.training) {
                 MetricTile(label: "This week", value: "\(Int((path?.doneSoFar ?? 0).rounded()))",
@@ -455,9 +449,7 @@ struct TodayView: View {
     }
 
     private func closeToday() {
-        let today = Date()
-        guard EvaluationService.closeDay(today, profile: profile, isLogComplete: true, in: ctx) else { return }
-        EvaluationService.requestDietCommentary(day: today, profile: profile, in: ctx)
+        EvaluationService.closeDay(Date(), isLogComplete: true, in: ctx)
     }
 
     private var coachRow: some View {
@@ -487,7 +479,7 @@ private extension View {
             Button("Close the day", action: onConfirm)
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("You can still fix or add meals afterwards; the score is recalculated.")
+            Text("You can still fix or add meals afterwards; the week updates.")
         }
     }
 }
